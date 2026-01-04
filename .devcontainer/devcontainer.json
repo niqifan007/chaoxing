@@ -1,4 +1,8 @@
 {
   "image": "mcr.microsoft.com/devcontainers/universal:latest",
-  "features": {}
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.13"
+    }
+  }
 }
