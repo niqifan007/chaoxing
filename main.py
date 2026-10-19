@@ -145,6 +145,15 @@ def load_config_from_file(config_path):
             common_config["retry_interval"] = float(common_config["retry_interval"])
         else:
             common_config["retry_interval"] = 1.0
+        if "work_max_retries" in common_config:
+            try:
+                common_config["work_max_retries"] = int(common_config["work_max_retries"])
+            except ValueError:
+                common_config["work_max_retries"] = 3
+        else:
+            common_config["work_max_retries"] = 3
+        if "work_redo_enabled" in common_config:
+            common_config["work_redo_enabled"] = str_to_bool(common_config["work_redo_enabled"])
         if "use_cookies" in common_config:
             common_config["use_cookies"] = str_to_bool(common_config["use_cookies"])
         if "add_learning_count" in common_config:
@@ -178,10 +187,10 @@ def build_config_from_args(args):
         "username": args.username,
         "password": args.password,
         "course_list": [item.strip() for item in args.list.split(",") if item.strip()] if args.list else None,
-        "speed": args.speed if args.speed else 1.0,
+        "speed": args.speed or 1.0,
         "jobs": args.jobs,
-        "notopen_action": args.notopen_action if args.notopen_action else "retry",
-        "retry_interval": args.retry_interval if args.retry_interval else 1.0
+        "notopen_action": args.notopen_action or "retry",
+        "retry_interval": args.retry_interval or 1.0,
         "add_learning_count": args.add_learning_count,
         "target_count": args.target_count,
     }
@@ -236,8 +245,20 @@ def init_chaoxing(common_config, tiku_config, config_path=None):
 
     query_delay = tiku_config.get("delay", 0)
 
+    # 章节检测答错后允许的最大重做次数（答错时反馈给AI并重新提交，直到全部正确）
+    work_max_retries = common_config.get("work_max_retries", 3)
+
+    # 是否允许自动重做(默认false: 仅检查并记录成绩, 适用于只允许作答一次的课程)
+    work_redo_enabled = common_config.get("work_redo_enabled", False)
+
     # 实例化超星API
-    chaoxing = Chaoxing(account=account, tiku=tiku, query_delay=query_delay)
+    chaoxing = Chaoxing(
+        account=account,
+        tiku=tiku,
+        query_delay=query_delay,
+        work_max_retries=work_max_retries,
+        work_redo_enabled=work_redo_enabled,
+    )
 
     return chaoxing
 
@@ -375,12 +396,12 @@ class JobProcessor:
                     logger.debug(f"unfinished task: {self.task_queue.unfinished_tasks}")
 
                 case ChapterResult.NOT_OPEN:
-                    # task.tries += 1
                     if self.config["notopen_action"] == "continue":
                         logger.warning("章节未开启: {} - {}, 正在跳过", task.course["title"], task.point["title"])
                         self.task_queue.task_done()
                         continue
 
+                    task.tries += 1
                     if task.tries >= self.max_tries:
                         logger.error(
                             "章节未开启: {} - {} 可能由于上一章节的章节检测未完成, 也可能由于该章节因为时效已关闭，"
